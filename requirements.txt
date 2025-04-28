@@ -1,0 +1,46 @@
+# requirements.txt
+
+# Core ADK framework
+google-adk
+
+# Web framework for API server (used by ADK CLI and custom main.py)
+fastapi
+
+# ASGI server to run FastAPI (standard includes performance extras like websockets)
+uvicorn[standard]
+
+# --- Optional Dependencies (Uncomment or add as needed) ---
+
+# For loading .env file variables within Python (good practice, though docker-compose handles it)
+python-dotenv
+
+# For testing the agent system
+# pytest
+
+# If using LangchainTool integration
+# langchain
+# langchain_community
+# Add specific Langchain tool dependencies (e.g., tavily-python)
+
+# If using CrewAITool integration
+# crewai
+# crewai_tools
+# Add specific CrewAI tool dependencies (e.g., crewai_tools[serper])
+
+# If using OpenAPI tools directly or custom tools making HTTP requests
+# requests
+
+# If using ToolboxTool (requires installing the client library)
+# toolbox-langchain
+
+# If interacting with databases directly (NOT via ToolboxTool)
+# Add appropriate database drivers (e.g., psycopg2-binary for PostgreSQL, mysql-connector-python for MySQL)
+# psycopg2-binary
+
+# If using Vertex AI specific features beyond core Gemini access (check ADK/Vertex docs)
+# google-cloud-aiplatform
+
+# Add any other libraries needed for your custom FunctionTools (e.g., static analysis, file parsing)
+# pylint
+# beautifulsoup4
+

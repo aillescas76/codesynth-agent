@@ -1,0 +1,46 @@
+# docker-compose.yml for ADK Agent System
+
+version: '3.8' # Specify the docker-compose version
+
+services:
+  # Define the main service for the ADK agent application
+  adk_agent:
+    # Build the Docker image using the Dockerfile in the current directory
+    build: .
+    # Assign a name to the container for easier identification
+    container_name: adk-agent-system
+    # Map the host port 8080 to the container port defined by ${PORT} (which is 8080 in the Dockerfile)
+    # Format: HOST:CONTAINER
+    ports:
+      - "8080:${PORT:-8080}" # Use PORT env var, default to 8080 if not set
+    # Mount the local 'src' directory into the container's '/app/src' directory
+    # This enables live code changes during development without rebuilding the image
+    # For production, you might remove this volume mount
+    volumes:
+      - ./src:/app/src
+    # Load environment variables from a .env file located in the same directory
+    # Recommended for managing secrets and configuration securely
+    env_file:
+      - .env
+    # Alternatively, define environment variables directly (less secure for secrets)
+    # environment:
+    #   - PORT=8080
+    #   - GOOGLE_API_KEY=your_google_api_key # Example - Prefer .env file
+    #   - GOOGLE_CLOUD_PROJECT=your-gcp-project-id # Example - Prefer .env file
+    #   - GOOGLE_CLOUD_LOCATION=your-gcp-location # Example - Prefer .env file
+    #   - GOOGLE_GENAI_USE_VERTEXAI=TRUE # Example - Prefer .env file
+    #   - OTHER_API_KEY=your_other_key # Example for custom tools
+
+  # Add other services if needed (e.g., database, MCP Toolbox server)
+  # database:
+  #   image: postgres:latest
+  #   environment:
+  #     POSTGRES_DB: adk_sessions
+  #     POSTGRES_USER: user
+  #     POSTGRES_PASSWORD: password
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+
+# Define named volumes (optional, e.g., for database persistence)
+# volumes:
+#   postgres_data:
