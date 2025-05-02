@@ -15,7 +15,7 @@ uvicorn[standard]
 python-dotenv
 
 # For testing the agent system
-# pytest
+pytest
 
 # If using LangchainTool integration
 # langchain
@@ -43,4 +43,7 @@ python-dotenv
 # Add any other libraries needed for your custom FunctionTools (e.g., static analysis, file parsing)
 # pylint
 # beautifulsoup4
+
+# For custom_tools.run_tests which uses the Docker SDK
+docker
 
