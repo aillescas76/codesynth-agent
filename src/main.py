@@ -1,7 +1,9 @@
 import asyncio
+import asyncio
 import argparse
 import os
 import json
+import pathlib # Added import
 from dotenv import load_dotenv
 
 from google.adk.runners import Runner
@@ -33,15 +35,37 @@ async def main():
         "--requirement",
         type=str,
         required=True,
-        help="The natural language software requirement to implement."
+        # Update help text to indicate it's a file path
+        help="The path to a file containing the natural language software requirement."
     )
+    # Keep the --project-path argument as is (Note: This replaces --codebase-path)
     parser.add_argument(
-        "--codebase-path",
+        "--project-path",
         type=str,
-        default=None,
-        help="Optional. The relative path to the existing codebase directory within the project."
+        required=True, # Make project path required
+        help="The relative path to the target project directory for code exploration, generation, and review."
     )
     args = parser.parse_args()
+
+    # --- Read Requirement from File ---
+    requirement_file_path = args.requirement
+    try:
+        # Ensure the path is treated as a file path
+        req_path = pathlib.Path(requirement_file_path)
+        if not req_path.is_file():
+             print(f"Error: Requirement file not found or is not a file: {requirement_file_path}")
+             exit(1)
+        user_requirement_text = req_path.read_text(encoding='utf-8')
+        print(f"Successfully read requirement from: {requirement_file_path}")
+    except FileNotFoundError:
+        print(f"Error: Requirement file not found: {requirement_file_path}")
+        exit(1)
+    except PermissionError:
+        print(f"Error: Permission denied reading requirement file: {requirement_file_path}")
+        exit(1)
+    except Exception as e:
+        print(f"Error reading requirement file '{requirement_file_path}': {e}")
+        exit(1)
 
     # --- Environment Setup ---
     # Load environment variables from .env file (especially API keys)
@@ -62,17 +86,15 @@ async def main():
     print("ADK Runner configured.")
 
     # --- Initial State ---
-    initial_state = {"user_requirement": args.requirement}
-    if args.codebase_path:
-        # Basic validation: check if it's not an absolute path and seems plausible
-        # More robust validation could be added here or rely on custom_tools validation
-        if os.path.isabs(args.codebase_path):
-             print(f"Warning: Provided codebase path '{args.codebase_path}' seems absolute. Only relative paths are recommended.")
-             # Decide whether to proceed or exit based on policy
-        initial_state["codebase_path"] = args.codebase_path # Use the key expected by the orchestrator
-        print(f"Initial state includes codebase path: {args.codebase_path}")
-    else:
-        print("Initial state does not include a codebase path.")
+    # Use the text read from the file
+    initial_state = {"user_requirement": user_requirement_text}
+
+    # Add the project_path logic (using the new required argument)
+    if os.path.isabs(args.project_path):
+         print(f"Warning: Provided project path '{args.project_path}' seems absolute. Only relative paths within the agent's execution context are recommended for security.")
+         # Consider adding an exit(1) here if absolute paths are strictly forbidden
+    initial_state["project_path"] = args.project_path # Use the key expected by agents needing the base path
+    print(f"Initial state includes project path: {args.project_path}")
 
     # --- Session Creation ---
     print("Creating new session...")
@@ -83,7 +105,8 @@ async def main():
     # --- Agent Execution ---
     print("\n>>> Starting Agent Execution <<<")
     try:
-        async for event in runner.run_async(session_id=session.session_id, query=args.requirement):
+        # Pass the requirement text itself in the query, not the path
+        async for event in runner.run_async(session_id=session.session_id, query=user_requirement_text):
             # Print events for observation during execution
             # You might want to filter or format specific event types
             print(f"\n--- Event Received ---")

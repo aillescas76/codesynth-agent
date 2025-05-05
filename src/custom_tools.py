@@ -2,6 +2,7 @@ import json
 import os
 import pathlib
 import subprocess
+import shutil # Needed for checking git executable
 import typing
 
 import docker
@@ -172,6 +173,131 @@ def list_directory(path: str = ".", recursive: bool = False) -> typing.Union[lis
          return {"status": "failure", "message": f"Permission denied when listing directory: {path}"}
     except Exception as e:
         return {"status": "failure", "message": f"An unexpected error occurred listing directory '{path}': {e}"}
+
+
+# --- Git Tools ---
+
+def _run_git_command(base_dir: pathlib.Path, command: list[str]) -> dict:
+    """Helper function to run a Git command in the specified directory."""
+    if not shutil.which("git"):
+        return {"status": "failure", "message": "Error: 'git' command not found in PATH."}
+    try:
+        # Ensure the base directory exists before running git commands
+        if not base_dir.is_dir():
+             return {"status": "failure", "message": f"Error: Base directory does not exist: {base_dir}"}
+
+        # Run the git command with cwd set to the base directory
+        result = subprocess.run(
+            ["git"] + command,
+            cwd=base_dir,
+            capture_output=True,
+            text=True,
+            check=False, # Don't raise exception on non-zero exit, handle it below
+            encoding='utf-8'
+        )
+        if result.returncode == 0:
+            return {"status": "success", "message": f"Git command '{' '.join(command)}' executed successfully.", "stdout": result.stdout, "stderr": result.stderr}
+        else:
+            error_message = f"Git command '{' '.join(command)}' failed with exit code {result.returncode}."
+            # Combine stderr and stdout for more context on failure
+            error_details = f"Stderr: {result.stderr.strip()}\nStdout: {result.stdout.strip()}"
+            return {"status": "failure", "message": error_message, "details": error_details.strip()}
+    except FileNotFoundError:
+        # This might happen if base_dir is invalid despite the check, though unlikely
+         return {"status": "failure", "message": f"Error: Base directory not found during git execution: {base_dir}"}
+    except PermissionError:
+        return {"status": "failure", "message": f"Error: Permission denied executing git command in {base_dir}."}
+    except Exception as e:
+        return {"status": "failure", "message": f"An unexpected error occurred running git command in {base_dir}: {e}"}
+
+
+def git_init(base_path_str: str) -> dict:
+    """
+    Initializes a Git repository in the specified base project directory if one doesn't exist.
+
+    Args:
+        base_path_str: The relative or absolute path to the base project directory.
+                       Relative paths are resolved from the agent's execution directory.
+
+    Returns:
+        A dictionary indicating the status (success/failure) and a message.
+    """
+    try:
+        # Resolve the base path first
+        base_dir = pathlib.Path(base_path_str).resolve(strict=True)
+    except FileNotFoundError:
+        return {"status": "failure", "message": f"Base path directory not found: {base_path_str}"}
+    except Exception as e:
+        return {"status": "failure", "message": f"Error resolving base path '{base_path_str}': {e}"}
+
+    # Check if .git directory already exists
+    git_dir = base_dir / ".git"
+    if git_dir.exists():
+        return {"status": "success", "message": f"Git repository already exists in {base_path_str}."}
+
+    # Run git init
+    return _run_git_command(base_dir, ["init"])
+
+
+def git_add(base_path_str: str, paths_to_add: list[str]) -> dict:
+    """
+    Stages specified files or directories within the Git repository located at base_path_str.
+
+    Args:
+        base_path_str: The relative or absolute path to the base project directory (which should be a Git repo).
+        paths_to_add: A list of relative paths (strings) *within* the base_path_str
+                      to stage (e.g., ["src/main.py", "docs/"]). Use "." to add all changes.
+
+    Returns:
+        A dictionary indicating the status (success/failure) and a message.
+    """
+    try:
+        # Resolve the base path first
+        base_dir = pathlib.Path(base_path_str).resolve(strict=True)
+    except FileNotFoundError:
+        return {"status": "failure", "message": f"Base path directory not found: {base_path_str}"}
+    except Exception as e:
+        return {"status": "failure", "message": f"Error resolving base path '{base_path_str}': {e}"}
+
+    if not paths_to_add:
+        return {"status": "failure", "message": "No paths provided to stage."}
+
+    # Basic validation: ensure provided paths are relative and don't try to escape.
+    # _resolve_safe_path isn't directly applicable here as we just need to pass the relative strings to git add.
+    # We rely on git itself operating within the CWD set by _run_git_command.
+    for p in paths_to_add:
+        if os.path.isabs(p) or ".." in p:
+             return {"status": "failure", "message": f"Invalid or potentially unsafe relative path provided for git add: {p}"}
+
+    # Run git add command
+    return _run_git_command(base_dir, ["add"] + paths_to_add)
+
+
+def git_commit(base_path_str: str, commit_message: str) -> dict:
+    """
+    Creates a commit with the staged changes in the Git repository at base_path_str.
+
+    Args:
+        base_path_str: The relative or absolute path to the base project directory (which should be a Git repo).
+        commit_message: The commit message string.
+
+    Returns:
+        A dictionary indicating the status (success/failure) and a message.
+    """
+    try:
+        # Resolve the base path first
+        base_dir = pathlib.Path(base_path_str).resolve(strict=True)
+    except FileNotFoundError:
+        return {"status": "failure", "message": f"Base path directory not found: {base_path_str}"}
+    except Exception as e:
+        return {"status": "failure", "message": f"Error resolving base path '{base_path_str}': {e}"}
+
+    if not commit_message:
+        return {"status": "failure", "message": "Commit message cannot be empty."}
+
+    # Run git commit command
+    # Use -m flag for the message
+    return _run_git_command(base_dir, ["commit", "-m", commit_message])
 
 
 def run_tests(test_paths: list[str]) -> dict:

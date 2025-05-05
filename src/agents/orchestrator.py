@@ -7,12 +7,14 @@ from google.adk.events import Event
 
 # Import sub-agent instances
 # Ensure these files exist and the agent instances are correctly defined within them.
- from .requirement_analysis import requirement_analyzer_agent
- from .code_exploration import code_explorer_agent
- from .implementation_planning import implementation_planner_agent
- from .code_generation import code_generator_agent
- from .testing import tester_agent
- from .refactoring import refactorer_agent
+from .requirement_analysis import requirement_analyzer_agent
+from .code_exploration import code_explorer_agent
+from .implementation_planning import implementation_planner_agent
+from .code_generation import code_generator_agent
+from .code_review import code_reviewer_agent
+# from .testing import tester_agent # Commented out
+from .refactoring import refactorer_agent
+from .versioning import versioner_agent # Import the new agent
 
 # Placeholder agents until the real ones are created
 from google.adk.agents import LlmAgent # Use LlmAgent as a placeholder type
@@ -33,8 +35,10 @@ class RequirementImplementationOrchestrator(BaseAgent):
         self.code_explore_agent = code_explorer_agent
         self.plan_agent = implementation_planner_agent
         self.code_gen_agent = code_generator_agent
-        self.test_agent = tester_agent
+        self.code_review_agent = code_reviewer_agent
+        # self.test_agent = tester_agent # Commented out
         self.refactor_agent = refactorer_agent
+        self.versioner_agent = versioner_agent # Instantiate the new agent
 
         # Register sub-agents with the framework for proper event handling etc.
         super().__init__(sub_agents=[
@@ -42,9 +46,11 @@ class RequirementImplementationOrchestrator(BaseAgent):
             self.code_explore_agent,
             self.plan_agent,
             self.code_gen_agent,
-            self.test_agent,
-            self.refactor_agent
-        ], name="requirement_implementation_orchestrator") # Give the orchestrator a name
+            self.code_review_agent,
+            # self.test_agent, # Commented out
+            self.refactor_agent,
+            self.versioner_agent # Register the new agent
+        ], name="requirement_implementation_orchestrator")
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """
@@ -81,46 +87,80 @@ class RequirementImplementationOrchestrator(BaseAgent):
         async for event in self.code_gen_agent.run_async(ctx):
             yield event
         print("--- Code Generation Done ---")
-        print(f"State['generated_code_paths']: {ctx.session.state.get('generated_code_paths')}")
+        generated_paths = ctx.session.state.get('generated_code_paths') # Get paths for check
+        print(f"State['generated_code_paths']: {generated_paths}")
 
-        # Ensure generated_code_paths exists before testing
-        if not ctx.session.state.get("generated_code_paths"):
-             print("\n--- Skipping Testing and Refactoring: No generated code paths found. ---")
-             print("\n--- Workflow Complete (Ended Early) ---")
-             return # Exit the workflow if no code was generated
-
-        print("\n--- Starting Testing ---")
-        async for event in self.test_agent.run_async(ctx):
-            yield event
-        test_results = ctx.session.state.get("test_results", {})
-        print("--- Testing Done ---")
-        print(f"State['test_results']: {test_results}")
-
-        # --- Iterative Refactor/Test Loop ---
-        attempt = 0
-        # Check if 'status' key exists and if it's not 'PASS'
-        # Handle potential case differences and ensure status exists
-        while test_results.get("status", "UNKNOWN").upper() != "PASS" and attempt < MAX_REFACTOR_ATTEMPTS:
-            attempt += 1
-            print(f"\n--- Tests Failed/Errored/Unknown. Starting Refactoring Attempt {attempt}/{MAX_REFACTOR_ATTEMPTS} ---")
-            async for event in self.refactor_agent.run_async(ctx):
+        # Add the Code Review Step here
+        if generated_paths: # Only run review if code was generated
+            print("\n--- Starting Code Review ---")
+            async for event in self.code_review_agent.run_async(ctx):
                 yield event
-            print(f"--- Refactoring Attempt {attempt} Done ---")
-            # Assuming refactor agent updates files in place or updates 'generated_code_paths'
-            print(f"State['generated_code_paths' after refactor]: {ctx.session.state.get('generated_code_paths')}")
-
-            print(f"\n--- Re-running Tests after Refactoring Attempt {attempt} ---")
-            async for event in self.test_agent.run_async(ctx): # Re-run tests
-                yield event
-            test_results = ctx.session.state.get("test_results", {}) # Update results
-            print(f"--- Re-Testing Done (Attempt {attempt}) ---")
-            print(f"State['test_results']: {test_results}")
-
-        # Final status check after the loop
-        if test_results.get("status", "UNKNOWN").upper() != "PASS":
-            print(f"\n--- Warning: Tests did not pass after {attempt} refactoring attempts. Final Status: {test_results.get('status', 'UNKNOWN')} ---")
+            print("--- Code Review Done ---")
+            print(f"State['code_review_summary']: {ctx.session.state.get('code_review_summary')}")
         else:
-            print("\n--- Tests Passed! ---")
+             print("\n--- Skipping Code Review: No generated code paths found. ---")
+
+        # Add Versioning Step here
+        # Check for project_path which is needed by the git tools as base_path_str
+        # The versioner agent expects 'project_path' in the state. Let's ensure it's there.
+        # We'll use 'codebase_path' if 'project_path' isn't explicitly set elsewhere.
+        project_path_for_git = ctx.session.state.get("project_path", ctx.session.state.get("codebase_path"))
+
+        if generated_paths and project_path_for_git: # Only run if code was generated AND project path exists
+            # Ensure project_path is explicitly in the state for the versioner agent
+            if "project_path" not in ctx.session.state and project_path_for_git:
+                 ctx.session.state["project_path"] = project_path_for_git
+                 print(f"Added 'project_path': {project_path_for_git} to session state for versioning.")
+
+            print("\n--- Starting Versioning ---")
+            async for event in self.versioner_agent.run_async(ctx):
+                yield event
+            print("--- Versioning Done ---")
+            print(f"State['versioning_summary']: {ctx.session.state.get('versioning_summary')}")
+        elif not generated_paths:
+             print("\n--- Skipping Versioning: No generated code paths found. ---")
+        else: # Implies project_path is missing
+             print(f"\n--- Skipping Versioning: Project path ('project_path' or 'codebase_path') not found in session state. Searched for: {project_path_for_git} ---")
+
+
+        # Ensure generated_code_paths exists before testing (Keep commented out block)
+        # # if not generated_paths: # Use the variable checked above
+        # #      print("\n--- Skipping Testing and Refactoring: No generated code paths found. ---")
+        # #      print("\n--- Workflow Complete (Ended Early) ---")
+        # #      return # Exit the workflow if no code was generated
+
+        # # print("\n--- Starting Testing ---")
+        # # # async for event in self.test_agent.run_async(ctx):
+        # #     yield event
+        # # test_results = ctx.session.state.get("test_results", {})
+        # # print("--- Testing Done ---")
+        # # print(f"State['test_results']: {test_results}")
+
+        # # --- Iterative Refactor/Test Loop ---
+        # attempt = 0
+        # # Check if 'status' key exists and if it's not 'PASS'
+        # # Handle potential case differences and ensure status exists
+        # while test_results.get("status", "UNKNOWN").upper() != "PASS" and attempt < MAX_REFACTOR_ATTEMPTS:
+        #     attempt += 1
+        #     print(f"\n--- Tests Failed/Errored/Unknown. Starting Refactoring Attempt {attempt}/{MAX_REFACTOR_ATTEMPTS} ---")
+        #     async for event in self.refactor_agent.run_async(ctx):
+        #         yield event
+        #     print(f"--- Refactoring Attempt {attempt} Done ---")
+        #     # Assuming refactor agent updates files in place or updates 'generated_code_paths'
+        #     print(f"State['generated_code_paths' after refactor]: {ctx.session.state.get('generated_code_paths')}")
+        #
+        #     print(f"\n--- Re-running Tests after Refactoring Attempt {attempt} ---")
+        #     async for event in self.test_agent.run_async(ctx): # Re-run tests
+        #         yield event
+        #     test_results = ctx.session.state.get("test_results", {}) # Update results
+        #     print(f"--- Re-Testing Done (Attempt {attempt}) ---")
+        #     print(f"State['test_results']: {test_results}")
+
+        # # Final status check after the loop
+        # if test_results.get("status", "UNKNOWN").upper() != "PASS":
+        #     print(f"\n--- Warning: Tests did not pass after {attempt} refactoring attempts. Final Status: {test_results.get('status', 'UNKNOWN')} ---")
+        # else:
+        #     print("\n--- Tests Passed! ---")
 
         print("\n--- Workflow Complete ---")
 
